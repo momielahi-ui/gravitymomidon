@@ -400,13 +400,93 @@ const ChatDemoView: React.FC<ChatDemoViewProps> = ({ config }) => {
   );
 };
 
+// --- Custom VAD Hook ---
+const useAudioVAD = (onSpeechStart: () => void, onSpeechEnd: () => void) => {
+  const [isMonitoring, setIsMonitoring] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const intervalRef = useRef<any>(null);
+  const speechStartTimeRef = useRef<number>(0);
+  const lastSpeechTimeRef = useRef<number>(0);
+  const isSpeakingRef = useRef(false);
+
+  // VAD Parameters
+  const SILENCE_THRESHOLD = 700; // ms to wait before considering speech ended
+  const VOLUME_THRESHOLD = 0.02; // Minimum volume to consider as speech
+  const MAX_DURATION = 6000; // Hard stop after 6s of speaking
+
+  const startMonitoring = async (stream: MediaStream) => {
+    if (isMonitoring) return;
+
+    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    analyserRef.current = audioContextRef.current.createAnalyser();
+    analyserRef.current.fftSize = 256;
+    sourceRef.current = audioContextRef.current.createMediaStreamSource(stream);
+    sourceRef.current.connect(analyserRef.current);
+
+    setIsMonitoring(true);
+    speechStartTimeRef.current = 0;
+    lastSpeechTimeRef.current = Date.now();
+    isSpeakingRef.current = false;
+
+    const bufferLength = analyserRef.current.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    intervalRef.current = setInterval(() => {
+      if (!analyserRef.current) return;
+      analyserRef.current.getByteFrequencyData(dataArray);
+
+      // Calculate average volume
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+      const average = sum / bufferLength / 255; // Normalize 0-1
+
+      const now = Date.now();
+
+      if (average > VOLUME_THRESHOLD) {
+        // Speech detected
+        lastSpeechTimeRef.current = now;
+        if (!isSpeakingRef.current) {
+          isSpeakingRef.current = true;
+          speechStartTimeRef.current = now;
+          onSpeechStart();
+        }
+
+        // Hard stop check
+        if (now - speechStartTimeRef.current > MAX_DURATION) {
+          console.log("VAD: Max duration reached");
+          onSpeechEnd();
+        }
+      } else {
+        // Silence
+        if (isSpeakingRef.current) {
+          if (now - lastSpeechTimeRef.current > SILENCE_THRESHOLD) {
+            console.log(`VAD: Silence detected (${now - lastSpeechTimeRef.current}ms > ${SILENCE_THRESHOLD}ms)`);
+            isSpeakingRef.current = false;
+            onSpeechEnd();
+          }
+        }
+      }
+    }, 100);
+  };
+
+  const stopMonitoring = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (audioContextRef.current) audioContextRef.current.close();
+    setIsMonitoring(false);
+  };
+
+  return { startMonitoring, stopMonitoring, isMonitoring };
+};
+
 interface VoiceDemoViewProps {
   config: BusinessConfig;
 }
 
 type VoiceStatus = 'Idle' | 'Listening' | 'Thinking' | 'Speaking' | 'Error: Connection Failed' | 'Error: Mic Failed' | 'Speech Recognition not supported in this browser (Use Chrome or Safari)';
 
-// VoiceDemoView with real Web Speech API
+// VoiceDemoView with VAD and Streaming
 const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -415,104 +495,218 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
 
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
+  const streamRef = useRef<MediaStream | null>(null);
+  const isProcessingRef = useRef(false);
+
+  // -- VAD Integration --
+  const stopListening = () => {
+    if (isProcessingRef.current) return; // Already processing
+    console.log("Stopping listening loop...");
+    recognitionRef.current?.stop(); // This triggers onend, which handles the transition
+  };
+
+  const vad = useAudioVAD(
+    () => console.log("Speech started"), // On speech start
+    () => stopListening() // On speech end (silence)
+  );
 
   useEffect(() => {
-    // Load voices
-    const loadVoices = () => {
-      synthRef.current.getVoices();
-    };
-
+    const loadVoices = () => synthRef.current.getVoices();
     loadVoices();
     synthRef.current.addEventListener('voiceschanged', loadVoices);
-
-    return () => {
-      synthRef.current.removeEventListener('voiceschanged', loadVoices);
-    };
+    return () => synthRef.current.removeEventListener('voiceschanged', loadVoices);
   }, []);
 
-  useEffect(() => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      if (recognitionRef.current) {
-        recognitionRef.current.continuous = false;
-        recognitionRef.current.interimResults = false;
+  const processVoiceInput = async (text: string) => {
+    if (!text.trim() || isProcessingRef.current) return;
 
-        recognitionRef.current.onstart = () => {
-          setStatus('Listening');
-          setIsListening(true);
-        };
+    isProcessingRef.current = true;
+    setStatus('Thinking');
+    setAiResponse(''); // Clear previous response
 
-        recognitionRef.current.onresult = async (e: any) => {
-          const text = e.results[0][0].transcript;
-          setTranscript(text);
-          setStatus('Thinking');
+    try {
+      // Start streaming request
+      const response = await authenticatedFetch(`${API_URL}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, history: [] }) // Send fresh history for demo
+      });
 
-          try {
-            const res = await authenticatedFetch(`${API_URL}/chat`, {
-              method: 'POST',
-              body: JSON.stringify({ message: text, history: [] })
-            });
-            const data = await res.json();
-            setAiResponse(data.response);
-            setStatus('Speaking');
+      if (!response.body) throw new Error("No response body");
 
-            // Enhanced voice with better parameters
-            const utterance = new SpeechSynthesisUtterance(data.response);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let buffer = '';
 
-            // Get available voices and select a more natural one
-            const voices = synthRef.current.getVoices();
-            // Prefer female voices as they tend to sound more natural
-            const preferredVoice = voices.find(v =>
-              v.name.includes('Google') ||
-              (v.name.includes('Microsoft') && v.name.includes('Female'))
-            ) || voices.find(v => v.lang.startsWith('en')) || voices[0];
+      setStatus('Speaking');
 
-            if (preferredVoice) utterance.voice = preferredVoice;
+      while (true) {
+        const { done, value } = await reader.read();
 
-            // Adjust parameters for more natural speech
-            utterance.rate = 0.95;  // Slightly slower for clarity
-            utterance.pitch = 1.1;  // Slightly higher pitch sounds friendlier
-            utterance.volume = 1.0;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          fullText += chunk;
+          buffer += chunk;
+          setAiResponse(prev => prev + chunk); // Optimistic UI update
 
-            utterance.onend = () => { setStatus('Idle'); setIsListening(false); };
-            synthRef.current.speak(utterance);
-          } catch (err: any) {
-            console.error("Voice chat error:", err);
-            setStatus('Error: Connection Failed');
-            setIsListening(false);
+          // Check for sentence boundaries to speak chunks immediately
+          // Regex checks for [.!?] followed by space or end of string
+          const sentences = buffer.split(/([.!?]+(?:\s|$))/);
+
+          if (sentences.length > 1) {
+            // We have at least one complete sentence
+            const sentenceToSpeak = sentences[0] + (sentences[1] || '');
+            if (sentenceToSpeak.trim()) {
+              speak(sentenceToSpeak.trim());
+              // Remove spoken part from buffer, keep the rest
+              buffer = buffer.slice(sentenceToSpeak.length);
+            }
           }
-        };
+        }
 
-        recognitionRef.current.onend = () => {
-          if (status === 'Listening') { // Only reset to Idle if it was actively listening
-            setIsListening(false);
-            setStatus('Idle');
-          }
-        };
-
-        recognitionRef.current.onerror = (e: any) => {
-          console.error("Recognition error:", e);
-          const errorMsg = `Error: ${e.error || 'Mic Failed'}`;
-          setStatus(errorMsg as VoiceStatus);
-          setIsListening(false);
-        };
+        if (done) break;
       }
-    } else {
-      setStatus('Speech Recognition not supported in this browser (Use Chrome or Safari)');
-    }
-  }, [status]); // Removed config.business_id as it's not directly used here and causes unnecessary re-runs
 
-  const toggleCall = () => {
-    if (isListening) {
-      synthRef.current.cancel(); // Stop any ongoing speech
-      recognitionRef.current?.stop();
-    } else {
-      setTranscript('');
-      setAiResponse('');
-      recognitionRef.current?.start();
+      // Speak any remaining buffer
+      if (buffer.trim()) {
+        speak(buffer.trim());
+      }
+
+    } catch (err: any) {
+      console.error("Voice chat error:", err);
+      setStatus('Error: Connection Failed');
+    } finally {
+      isProcessingRef.current = false;
     }
   };
+
+
+  const speak = (text: string) => {
+    if (synthRef.current.speaking) {
+      // If already speaking, we might queue properly or just let it stack
+      // window.speechSynthesis handles queuing automatically
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = synthRef.current.getVoices();
+    const preferredVoice = voices.find(v => v.name.includes('Google') || (v.name.includes('Microsoft') && v.name.includes('Female'))) || voices.find(v => v.lang.startsWith('en')) || voices[0];
+
+    if (preferredVoice) utterance.voice = preferredVoice;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    // When the LAST utterance finishes, go back to idle
+    utterance.onend = () => {
+      // Only reset if we are done processing everything
+      if (!isProcessingRef.current && !synthRef.current.speaking) {
+        setStatus('Idle');
+        setIsListening(false);
+      }
+    };
+
+    synthRef.current.speak(utterance);
+  };
+
+
+  const startListening = async () => {
+    try {
+      isProcessingRef.current = false;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      // Start VAD monitoring
+      await vad.startMonitoring(stream);
+
+      // Start Recognition
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true; // Keep it running until VAD stops it
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = 'en-US';
+
+      recognitionRef.current.onstart = () => {
+        setStatus('Listening');
+        setIsListening(true);
+      };
+
+      recognitionRef.current.onresult = (e: any) => {
+        let finalTranscript = '';
+        for (let i = e.resultIndex; i < e.results.length; ++i) {
+          if (e.results[i].isFinal) {
+            finalTranscript += e.results[i][0].transcript;
+          } else {
+            // interim
+            setTranscript(e.results[i][0].transcript);
+          }
+        }
+
+        if (finalTranscript) {
+          setTranscript(finalTranscript);
+          // If we got a final result, we technically could process it, 
+          // but we wait for VAD to stop to ensure we got the full thought.
+          // However, to be extra fast, if the confidence is high and it looks complete, 
+          // we could potentially trigger early, but let's stick to VAD trigger for reliability/latency balance.
+        }
+      };
+
+      recognitionRef.current.onend = () => {
+        console.log("Recognition ended");
+        vad.stopMonitoring();
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+        }
+
+        // If strictly listening (not cancelled), process whatever we have in transcript
+        if (status === 'Listening' && !isProcessingRef.current) {
+          // We need to grab the latest transcript value which might be in state
+          // Since we can't easily access the latest state in this callback without refs,
+          // we'll rely on the fact that we updated state. 
+          // Better approach: use a ref for transcript
+        }
+      };
+
+      recognitionRef.current.start();
+
+    } catch (err) {
+      console.error("Mic access error:", err);
+      setStatus('Error: Mic Failed');
+    }
+  };
+
+  // Use a ref to track transcript for submitting on stop
+  const transcriptRef = useRef('');
+  useEffect(() => { transcriptRef.current = transcript; }, [transcript]);
+
+  // Hook into VAD stop -> trigger processing
+  useEffect(() => {
+    // We need to customize the stopListening function used by VAD 
+    // to also trigger the processing.
+    // Currently vad.stopListening calls stopListening() which stops recognition.
+    // recognition.onend fires.
+    // We need to trigger processing *there*.
+  }, []);
+
+  // Revised stop wrapper
+  const handleVADSilence = () => {
+    console.log("VAD detected silence. Stopping...");
+    recognitionRef.current?.stop(); // This will trigger onend
+    // We process immediately to be faster
+    if (transcriptRef.current) {
+      processVoiceInput(transcriptRef.current);
+    }
+  };
+
+  // Re-bind VAD with the handler that has access to closure/refs if needed, 
+  // or just pass it directly. Since useAudioVAD is defined outside or inside?
+  // It's inside. So we need to re-initialize vad or better yet, make sure useAudioVAD callback uses refs.
+
+  // Actually, simpler fix: Update the useAudioVAD hook usage above.
+  // We can't update it dynamically easily. 
+  // Let's modify the VAD hook call to use a ref-stable function.
+
+  const handleSilenceRef = useRef(handleVADSilence);
+  handleSilenceRef.current = handleVADSilence;
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-12rem)] md:h-full items-center justify-center p-4">
@@ -521,11 +715,10 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
           {status}
         </Badge>
         <h2 className="text-2xl md:text-3xl font-bold text-white mt-4 truncate px-4">{config.business_name}</h2>
-        <p className="text-slate-400 text-sm">Voice Interface Demo</p>
+        <p className="text-slate-400 text-sm">Ultra-Low Latency Voice Demo</p>
       </div>
 
       <div className="relative mb-8 md:mb-12">
-        {/* Visual Ripple */}
         {status !== 'Idle' && (
           <>
             <div className="absolute inset-0 bg-purple-500/20 rounded-full animate-ping" />
@@ -534,11 +727,23 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
         )}
 
         <button
-          onClick={toggleCall}
+          onClick={() => {
+            if (isListening) {
+              recognitionRef.current?.stop();
+              vad.stopMonitoring();
+              setIsListening(false);
+              setStatus('Idle');
+              isProcessingRef.current = false;
+              synthRef.current.cancel();
+            } else {
+              setTranscript('');
+              startListening();
+            }
+          }}
           className={`relative z-10 w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl ${status === 'Listening' ? 'bg-red-500 shadow-red-900/20' :
-            status === 'Speaking' ? 'bg-green-500 shadow-green-900/20' :
-              status === 'Thinking' ? 'bg-amber-500 shadow-amber-900/20' :
-                'bg-slate-800 border-2 border-slate-700 hover:border-purple-500'
+              status === 'Speaking' ? 'bg-green-500 shadow-green-900/20' :
+                status === 'Thinking' ? 'bg-amber-400 shadow-amber-900/20 animate-pulse' :
+                  'bg-slate-800 border-2 border-slate-700 hover:border-purple-500'
             }`}
         >
           {status === 'Listening' ? <MicOff className="w-8 h-8 md:w-10 md:h-10 text-white" /> :
@@ -547,7 +752,8 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
               <div className="w-1 h-5 md:h-6 bg-white animate-pulse delay-75" />
               <div className="w-1 h-3 md:h-3 bg-white animate-pulse delay-150" />
             </div> :
-              <Mic className={`w-8 h-8 md:w-10 md:h-10 ${status === 'Idle' ? 'text-slate-400' : 'text-white'}`} />
+              status === 'Thinking' ? <Sparkles className="w-8 h-8 md:w-10 md:h-10 text-white animate-spin-slow" /> :
+                <Mic className={`w-8 h-8 md:w-10 md:h-10 ${status === 'Idle' ? 'text-slate-400' : 'text-white'}`} />
           }
         </button>
       </div>

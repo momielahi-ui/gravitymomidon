@@ -144,22 +144,30 @@ app.post('/api/chat', async (req, res) => {
             },
         });
 
-        const result = await chat.sendMessage(message);
-        const aiResponse = result.response.text();
+        // Set headers for streaming
+        res.setHeader('Content-Type', 'text/plain');
+        res.setHeader('Transfer-Encoding', 'chunked');
 
-        // Save to Supabase (Conversations) - Optional Implementation Logic
-        // In a real app, you'd likely append to a specific conversation ID passed from frontend
-        // For now, we are skipping persistent conversation storage to keep the diff manageable, 
-        // as the frontend sends the full history on each request anyway.
+        const result = await chat.sendMessageStream(message);
 
-        res.json({ response: aiResponse });
+        for await (const chunk of result.stream) {
+            const chunkText = chunk.text();
+            res.write(chunkText);
+        }
+
+        res.end();
 
     } catch (error) {
         console.error('Gemini Error Full:', JSON.stringify(error, null, 2));
         if (error.message) console.error('Error Message:', error.message);
 
-        // Fallback
-        res.json({ response: `[AI Error] ${error.message || 'Connection failed'}` });
+        // If headers haven't been sent, we can send a JSON error
+        if (!res.headersSent) {
+            res.status(500).json({ error: error.message || 'Connection failed' });
+        } else {
+            // If streaming started, we can't send a proper error status, just end
+            res.end();
+        }
     }
 });
 
