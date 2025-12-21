@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Phone, MessageSquare, Mic, Settings, Send, MicOff,
-  CheckCircle2, LayoutDashboard, LogOut, Globe, Sparkles, Lock, Mail, Menu, X
+  CheckCircle2, LayoutDashboard, LogOut, Globe, Sparkles, Lock, Mail, Menu, X, Clock
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -225,7 +225,94 @@ interface BusinessConfig {
   workingHours: string;
   business_name?: string; // Optional, used in other components
   industry?: string; // Optional, used in other components
+  subscription_plan?: 'free' | 'starter' | 'growth' | 'pro';
+  minutes_used?: number;
+  minutes_limit?: number;
 }
+
+const UsageCard: React.FC<{ used: number; limit: number }> = ({ used, limit }) => {
+  const percentage = Math.min((used / limit) * 100, 100);
+  const isWarning = percentage > 80;
+  const isCritical = percentage >= 100;
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold text-white flex items-center gap-2">
+          <Clock className="w-5 h-5 text-slate-400" />
+          Plan Usage
+        </h3>
+        <Badge color={isCritical ? 'red' : isWarning ? 'amber' : 'green'}>
+          {isCritical ? 'Limit Reached' : isWarning ? 'Running Low' : 'Active'}
+        </Badge>
+      </div>
+
+      <div className="mb-2 flex justify-between text-sm">
+        <span className="text-slate-400">Monthly Minutes</span>
+        <span className="text-white font-medium">{used} / {limit} min</span>
+      </div>
+
+      <div className="w-full bg-slate-700/50 rounded-full h-2.5 overflow-hidden">
+        <div
+          className={`h-2.5 rounded-full transition-all duration-500 ${isCritical ? 'bg-red-500' : isWarning ? 'bg-amber-500' : 'bg-green-500'}`}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+
+      {isCritical && (
+        <p className="mt-4 text-xs text-red-400 bg-red-500/10 p-2 rounded border border-red-500/20">
+          Calls are currently blocked. Please upgrade your plan to continue receiving calls.
+        </p>
+      )}
+    </Card>
+  );
+};
+
+const PricingCard: React.FC<{
+  plan: string;
+  price: string;
+  mins: number;
+  current: boolean;
+  features: string[];
+}> = ({ plan, price, mins, current, features }) => (
+  <Card className={`p-6 relative overflow-hidden ${current ? 'border-purple-500 ring-1 ring-purple-500' : 'opacity-80 hover:opacity-100 transition'}`}>
+    {current && (
+      <div className="absolute top-0 right-0 bg-purple-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">
+        CURRENT PLAN
+      </div>
+    )}
+
+    <h3 className="text-xl font-bold text-white mb-1 capitalize">{plan}</h3>
+    <div className="flex items-baseline gap-1 mb-4">
+      <span className="text-2xl font-bold text-white">{price}</span>
+      <span className="text-sm text-slate-400">/mo</span>
+    </div>
+
+    <div className="space-y-3 mb-6">
+      <div className="flex items-center gap-2 text-sm text-slate-300">
+        <Clock className="w-4 h-4 text-purple-400" />
+        <span>{mins} mins/month</span>
+      </div>
+      {features.map((f, i) => (
+        <div key={i} className="flex items-center gap-2 text-sm text-slate-300">
+          <CheckCircle2 className="w-4 h-4 text-green-400" />
+          <span>{f}</span>
+        </div>
+      ))}
+    </div>
+
+    <button
+      disabled={current}
+      className={`w-full py-2 rounded-lg text-sm font-semibold transition ${current
+        ? 'bg-slate-700 text-slate-400 cursor-default'
+        : 'bg-white text-slate-900 hover:bg-slate-200'
+        }`}
+      onClick={() => alert("Billing integration coming soon! Contact support to upgrade.")}
+    >
+      {current ? 'Active Plan' : 'Upgrade'}
+    </button>
+  </Card>
+);
 
 interface OnboardingProps {
   onComplete: (config: BusinessConfig) => void;
@@ -741,9 +828,9 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
             }
           }}
           className={`relative z-10 w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl ${status === 'Listening' ? 'bg-red-500 shadow-red-900/20' :
-              status === 'Speaking' ? 'bg-green-500 shadow-green-900/20' :
-                status === 'Thinking' ? 'bg-amber-400 shadow-amber-900/20 animate-pulse' :
-                  'bg-slate-800 border-2 border-slate-700 hover:border-purple-500'
+            status === 'Speaking' ? 'bg-green-500 shadow-green-900/20' :
+              status === 'Thinking' ? 'bg-amber-400 shadow-amber-900/20 animate-pulse' :
+                'bg-slate-800 border-2 border-slate-700 hover:border-purple-500'
             }`}
         >
           {status === 'Listening' ? <MicOff className="w-8 h-8 md:w-10 md:h-10 text-white" /> :
@@ -781,21 +868,85 @@ interface DashboardViewProps {
   onNavigate: (view: string) => void;
 }
 
-const DashboardView: React.FC<DashboardViewProps> = ({ config, onNavigate }) => (
-  <div>
-    <h1 className="text-3xl font-bold text-white mb-6">Welcome, {config.business_name}</h1>
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <Card className="p-6 cursor-pointer hover:bg-slate-800/80 transition" onClick={() => onNavigate('chat-demo')}>
-        <MessageSquare className="w-8 h-8 text-purple-400 mb-4" />
-        <h3 className="font-bold text-white">Test Chat</h3>
-      </Card>
-      <Card className="p-6 cursor-pointer hover:bg-slate-800/80 transition" onClick={() => onNavigate('phone-demo')}>
-        <Phone className="w-8 h-8 text-green-400 mb-4" />
-        <h3 className="font-bold text-white">Test Voice</h3>
-      </Card>
+const DashboardView: React.FC<DashboardViewProps> = ({ config, onNavigate }) => {
+  const currentPlan = config.subscription_plan || 'free';
+  const minutesUsed = config.minutes_used || 0;
+  const minutesLimit = config.minutes_limit || 10;
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+        <div>
+          <h1 className="text-3xl font-bold text-white">Welcome, {config.business_name}</h1>
+          <p className="text-slate-400 mt-1">Manage your AI Receptionist</p>
+        </div>
+        <Badge color="purple">{currentPlan.toUpperCase()} PLAN</Badge>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Usage Stats - Takes up 1 column */}
+        <div className="md:col-span-1 space-y-6">
+          <UsageCard used={minutesUsed} limit={minutesLimit} />
+
+          <Card className="p-6 cursor-pointer hover:bg-slate-800/80 transition group" onClick={() => onNavigate('chat-demo')}>
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-purple-500/10 rounded-xl group-hover:bg-purple-500/20 transition">
+                <MessageSquare className="w-6 h-6 text-purple-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white">Test Chat</h3>
+                <p className="text-sm text-slate-400">Try text messaging</p>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-6 cursor-pointer hover:bg-slate-800/80 transition group" onClick={() => onNavigate('phone-demo')}>
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-green-500/10 rounded-xl group-hover:bg-green-500/20 transition">
+                <Phone className="w-6 h-6 text-green-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white">Test Voice</h3>
+                <p className="text-sm text-slate-400">Try voice calling</p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Pricing Plans - Takes up 2 columns */}
+        <div className="md:col-span-2">
+          <h2 className="text-lg font-bold text-white mb-4">Available Plans</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <PricingCard
+              plan="starter"
+              price="$29"
+              mins={100}
+              current={currentPlan === 'starter'}
+              features={['Basic AI Voice', 'Email Support']}
+            />
+            <PricingCard
+              plan="growth"
+              price="$79"
+              mins={500}
+              current={currentPlan === 'growth'}
+              features={['Advanced Voice', 'Priority Support', 'Custom Greeting']}
+            />
+            <PricingCard
+              plan="pro"
+              price="$149"
+              mins={2000}
+              current={currentPlan === 'pro'}
+              features={['24/7 Phone Support', 'API Access', 'White Labeling']}
+            />
+          </div>
+          <p className="text-xs text-slate-500 mt-4 text-center">
+            Need more? <a href="#" className="underline hover:text-purple-400">Contact Sales</a> for Enterprise plans.
+          </p>
+        </div>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 interface TwilioStatus {
   connected: boolean;
