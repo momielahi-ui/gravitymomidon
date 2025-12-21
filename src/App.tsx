@@ -1248,6 +1248,10 @@ export default function App() {
 
   const checkSetup = async (currentSession: any) => {
     console.log("[App] Checking setup status...");
+    // Only set to loading if we aren't already there or in a potentially confusing state
+    // For smoother UX, we can just let it sit if we want, but since backend sleeps, we NEED feedback.
+    if (view !== 'loading') setView('loading');
+
     try {
       const res = await authenticatedFetch(`${API_URL}/status`, {
         headers: { 'Authorization': `Bearer ${currentSession.access_token}` }
@@ -1295,7 +1299,10 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-purple-500/20 border-t-purple-500 mb-4" />
-        <p className="text-slate-400 animate-pulse">Initializing SmartReception...</p>
+        <p className="text-slate-400 animate-pulse font-medium">Initializing SmartReception...</p>
+        <p className="text-slate-500 text-xs mt-4 max-w-xs text-center">
+          (This may take ~50s if the server is waking up from sleep mode)
+        </p>
       </div>
     );
   }
