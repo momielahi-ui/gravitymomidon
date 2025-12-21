@@ -266,6 +266,16 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
       }
     } catch (err: any) {
       console.error("Setup failed", err);
+
+      // Handle the case where the user already exists (duplicate key error)
+      // This allows users to recover if they are stuck in onboarding but have a backend record
+      if (err.message && (err.message.includes('duplicate key') || err.message.includes('unique constraint'))) {
+        console.log("Duplicate key detected - proceeding to dashboard as recovery");
+        alert("Account already set up! Proceeding to dashboard...");
+        onComplete(formData);
+        return;
+      }
+
       alert(`❌ Launch Failed\n\n${err.message || 'Unknown error occurred'}\n\nPlease ensure you are logged in and try again. If the problem persists, the server may be starting up - wait 30 seconds and retry.`);
     } finally {
       setIsSubmitting(false);
