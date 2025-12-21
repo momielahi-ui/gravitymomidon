@@ -593,8 +593,11 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
   };
 
   const vad = useAudioVAD(
-    () => console.log("Speech started"), // On speech start
-    () => stopListening() // On speech end (silence)
+    () => addDebug("VAD: Speech Start"),
+    () => {
+      addDebug("VAD: Speech End");
+      stopListening();
+    }
   );
 
   // Debug state
@@ -827,12 +830,11 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
         <button
           onClick={() => {
             if (isListening) {
-              recognitionRef.current?.stop();
+              // Manual Stop = Treat as silence detection (Process it!)
+              console.log("Manual stop -> triggering silence handler");
+              handleVADSilence();
               vad.stopMonitoring();
               setIsListening(false);
-              setStatus('Idle');
-              isProcessingRef.current = false;
-              synthRef.current.cancel();
             } else {
               setTranscript('');
               startListening();
