@@ -250,10 +250,22 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
         method: 'POST',
         body: JSON.stringify(formData)
       });
+
+      // Check for HTTP errors
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server error: ${res.status}. Please try again.`);
+      }
+
       const data = await res.json();
-      if (data.success) onComplete(formData);
-    } catch (err) {
+      if (data.success) {
+        onComplete(formData);
+      } else {
+        throw new Error(data.error || 'Setup failed. Please try again.');
+      }
+    } catch (err: any) {
       console.error("Setup failed", err);
+      alert(`❌ Launch Failed\n\n${err.message || 'Unknown error occurred'}\n\nPlease ensure you are logged in and try again. If the problem persists, the server may be starting up - wait 30 seconds and retry.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -872,6 +884,19 @@ export default function App() {
       const res = await authenticatedFetch(`${API_URL}/status`, {
         headers: { 'Authorization': `Bearer ${currentSession.access_token}` }
       });
+
+      // Handle 401 - redirect to login
+      if (res.status === 401) {
+        console.log("[App] Unauthorized - redirecting to auth");
+        setView('auth');
+        return;
+      }
+
+      // Handle other HTTP errors
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}`);
+      }
+
       const data = await res.json();
       console.log("[App] Setup data received:", data);
       if (data.setupCompleted) {
@@ -884,7 +909,7 @@ export default function App() {
     } catch (err: any) {
       console.error("[App] checkSetup Error:", err);
       // Detailed error UI instead of just a kick-back
-      alert(`NUCLEAR FIX TRIGGERED:\n\n1. Error: ${err.message || 'Connection Failed'}\n2. API: ${API_URL}\n3. Check: Is the Render server spinning up?\n\nIf the URL above shows 'localhost', you MUST add environment variables to Vercel.`);
+      alert(`⚠️ Connection Error\n\n${err.message || 'Connection Failed'}\n\nAPI: ${API_URL}\n\nThe server may be starting up. Please wait 30 seconds and try again.`);
       setView('auth');
     }
   };
