@@ -637,6 +637,11 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
         body: JSON.stringify({ message: text, history: [] })
       });
 
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server Error (${response.status}): ${errorText.substring(0, 100)}`);
+      }
+
       if (!response.body) throw new Error("No response body");
 
       const reader = response.body.getReader();
