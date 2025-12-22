@@ -479,11 +479,15 @@ const ChatDemoView: React.FC<ChatDemoViewProps> = ({ config, isDemoMode }) => {
       const bodyPayload = {
         message: userMsg.content,
         history: messages.map(m => ({ role: m.role, content: m.content })),
-        config: isDemoMode ? config : undefined
+        config: isDemoMode ? (config || {}) : undefined
       };
 
-      const res = await authenticatedFetch(`${API_URL}/chat`, {
+      // Use direct fetch for demo mode
+      const fetcher = isDemoMode ? fetch : authenticatedFetch;
+
+      const res = await fetcher(`${API_URL}/chat`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyPayload)
       });
       const data = await res.json();
@@ -671,10 +675,15 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config, isDemoMode }) => 
       const bodyPayload = {
         message: text,
         history: [],
-        config: isDemoMode ? config : undefined
+        config: isDemoMode ? (config || {}) : undefined
       };
 
-      const response = await authenticatedFetch(`${API_URL}/chat`, {
+      console.log("[VoiceDemo] Sending payload:", bodyPayload);
+
+      // Use direct fetch for demo mode to avoid any auth token interference
+      const fetcher = isDemoMode ? fetch : authenticatedFetch;
+
+      const response = await fetcher(`${API_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyPayload)
