@@ -92,22 +92,30 @@ app.post('/api/setup', async (req, res) => {
 
 // Chat Endpoint
 app.post('/api/chat', async (req, res) => {
-    const user = await getUser(req);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    // Check for Demo Config first (Unauthenticated flow)
+    let config = req.body.config;
+    let user = null;
 
-    const { message, history } = req.body;
-    const supabase = getSupabaseClient(req.headers.authorization.split(' ')[1]);
+    if (!config) {
+        // Authenticated flow: Get user and fetch from DB
+        user = await getUser(req);
+        if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    // Get Config
-    const { data: config, error } = await supabase
-        .from('businesses')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
+        const supabase = getSupabaseClient(req.headers.authorization.split(' ')[1]);
+        const { data: dbConfig, error } = await supabase
+            .from('businesses')
+            .select('*')
+            .eq('user_id', user.id)
+            .single();
+
+        config = dbConfig;
+    }
 
     if (!config) {
         return res.status(400).json({ error: 'Business not configured' });
     }
+
+    const { message, history } = req.body;
 
     // Construct System Prompt
     const systemPrompt = `You are an AI receptionist for "${config.business_name}".

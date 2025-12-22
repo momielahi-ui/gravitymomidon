@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Phone, MessageSquare, Mic, Settings, Send, MicOff,
-  CheckCircle2, LayoutDashboard, LogOut, Globe, Sparkles, Lock, Mail, Menu, X, Clock
+  CheckCircle2, LayoutDashboard, LogOut, Globe, Sparkles, Lock, Mail, Menu, X, Clock,
+  PhoneOutgoing
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
@@ -51,9 +52,10 @@ const Badge: React.FC<BadgeProps> = ({ children, color = 'blue' }) => {
 
 interface AuthProps {
   onAuthSuccess: () => void;
+  onTryDemo: () => void;
 }
 
-const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
+const Auth: React.FC<AuthProps> = ({ onAuthSuccess, onTryDemo }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -143,6 +145,20 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
               className="w-full bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl font-semibold transition disabled:opacity-50 flex items-center justify-center"
             >
               {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
+            </button>
+
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-700"></div></div>
+              <div className="relative flex justify-center text-sm"><span className="px-2 bg-slate-800 text-slate-400">Or</span></div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onTryDemo}
+              className="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2 group"
+            >
+              <Sparkles className="w-4 h-4 text-purple-400 group-hover:text-purple-300" />
+              Try Demo Free
             </button>
 
             <div className="mt-8 pt-6 border-t border-slate-800 text-center">
@@ -316,10 +332,11 @@ const PricingCard: React.FC<{
 
 interface OnboardingProps {
   onComplete: (config: BusinessConfig) => void;
+  isDemoMode?: boolean;
 }
 
 // Onboarding now uses authenticatedFetch
-const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
+const Onboarding: React.FC<OnboardingProps> = ({ onComplete, isDemoMode }) => {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<BusinessConfig>({
     name: '', services: '', tone: 'professional', greeting: '', workingHours: '9 AM - 5 PM, Mon-Fri'
@@ -333,6 +350,17 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
+
+    if (isDemoMode) {
+      // Skip backend API call for Demo Mode
+      // Simulate a small delay for UX
+      setTimeout(() => {
+        onComplete(formData);
+        setIsSubmitting(false);
+      }, 800);
+      return;
+    }
+
     try {
       const res = await authenticatedFetch(`${API_URL}/setup`, {
         method: 'POST',
@@ -427,10 +455,11 @@ interface ChatMessage {
 
 interface ChatDemoViewProps {
   config: BusinessConfig;
+  isDemoMode?: boolean;
 }
 
 // ChatDemo now uses authenticatedFetch
-const ChatDemoView: React.FC<ChatDemoViewProps> = ({ config }) => {
+const ChatDemoView: React.FC<ChatDemoViewProps> = ({ config, isDemoMode }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([{ role: 'assistant', content: config.greeting || 'Hello!' }]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -446,9 +475,16 @@ const ChatDemoView: React.FC<ChatDemoViewProps> = ({ config }) => {
     setIsLoading(true);
 
     try {
+      // Pass config in body if in Demo Mode
+      const bodyPayload = {
+        message: userMsg.content,
+        history: messages.map(m => ({ role: m.role, content: m.content })),
+        config: isDemoMode ? config : undefined
+      };
+
       const res = await authenticatedFetch(`${API_URL}/chat`, {
         method: 'POST',
-        body: JSON.stringify({ message: userMsg.content, history: messages.map(m => ({ role: m.role, content: m.content })) })
+        body: JSON.stringify(bodyPayload)
       });
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
@@ -566,18 +602,18 @@ const useAudioVAD = (onSpeechStart: () => void, onSpeechEnd: () => void) => {
     if (audioContextRef.current) audioContextRef.current.close();
     setIsMonitoring(false);
   };
-
   return { startMonitoring, stopMonitoring, isMonitoring };
 };
 
 interface VoiceDemoViewProps {
   config: BusinessConfig;
+  isDemoMode?: boolean;
 }
 
 type VoiceStatus = 'Idle' | 'Listening' | 'Thinking' | 'Speaking' | 'Error: Connection Failed' | 'Error: Mic Failed' | 'Speech Recognition not supported in this browser (Use Chrome or Safari)';
 
 // VoiceDemoView with VAD and Streaming
-const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
+const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config, isDemoMode }) => {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [aiResponse, setAiResponse] = useState('');
@@ -631,10 +667,17 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
     addDebug(`Processing: "${text.substring(0, 15)}..."`);
 
     try {
+      // Pass config in body if in Demo Mode
+      const bodyPayload = {
+        message: text,
+        history: [],
+        config: isDemoMode ? config : undefined
+      };
+
       const response = await authenticatedFetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, history: [] })
+        body: JSON.stringify(bodyPayload)
       });
 
       if (!response.ok) {
@@ -902,15 +945,34 @@ const VoiceDemoView: React.FC<VoiceDemoViewProps> = ({ config }) => {
 interface DashboardViewProps {
   config: BusinessConfig;
   onNavigate: (view: string) => void;
+  isDemoMode?: boolean;
 }
 
-const DashboardView: React.FC<DashboardViewProps> = ({ config, onNavigate }) => {
+const DashboardView: React.FC<DashboardViewProps> = ({ config, onNavigate, isDemoMode }) => {
   const currentPlan = config.subscription_plan || 'free';
   const minutesUsed = config.minutes_used || 0;
   const minutesLimit = config.minutes_limit || 10;
 
   return (
     <div className="space-y-8">
+      {isDemoMode && (
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-200 p-4 rounded-xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Sparkles className="w-5 h-5 text-amber-400" />
+            <div>
+              <p className="font-bold">You are in Demo Mode</p>
+              <p className="text-sm opacity-80">Your settings will be lost if you refresh. Create an account to save them!</p>
+            </div>
+          </div>
+          <button
+            onClick={() => window.location.reload()} // Quick way to go back to auth, or pass a handler
+            className="bg-amber-500 text-black px-4 py-2 rounded-lg font-bold hover:bg-amber-400 transition text-sm"
+          >
+            Sign Up Now
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
         <div>
           <h1 className="text-3xl font-bold text-white">Welcome, {config.business_name}</h1>
@@ -919,34 +981,52 @@ const DashboardView: React.FC<DashboardViewProps> = ({ config, onNavigate }) => 
         <Badge color="purple">{currentPlan.toUpperCase()} PLAN</Badge>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="p-6 hover:bg-slate-800/50 transition cursor-pointer group" onClick={() => onNavigate('chat-demo')}>
+          <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition">
+            <MessageSquare className="w-6 h-6 text-blue-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">Chat Demo</h3>
+          <p className="text-slate-400 text-sm">Test your AI assistant in a text chat interface.</p>
+        </Card>
+
+        <Card className="p-6 hover:bg-slate-800/50 transition cursor-pointer group" onClick={() => onNavigate('phone-demo')}>
+          <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition">
+            <Phone className="w-6 h-6 text-green-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">Voice Demo</h3>
+          <p className="text-slate-400 text-sm">Experience the ultra-low latency voice interface.</p>
+        </Card>
+
+        <Card className={`p-6 transition cursor-pointer group ${isDemoMode ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-800/50'}`}
+          onClick={() => !isDemoMode && onNavigate('settings')}>
+          <div className="flex justify-between items-start">
+            <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition">
+              <Settings className="w-6 h-6 text-purple-400" />
+            </div>
+            {isDemoMode && <Lock className="w-4 h-4 text-slate-500" />}
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">Business Settings</h3>
+          <p className="text-slate-400 text-sm">Configure your hours, tone, and services.</p>
+        </Card>
+
+        <Card className={`p-6 transition cursor-pointer group ${isDemoMode ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-800/50'}`}
+          onClick={() => !isDemoMode && alert("Connect Twilio to go live!")}>
+          <div className="flex justify-between items-start">
+            <div className="w-12 h-12 bg-pink-500/20 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition">
+              <PhoneOutgoing className="w-6 h-6 text-pink-400" />
+            </div>
+            {isDemoMode && <Lock className="w-4 h-4 text-slate-500" />}
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">Connect Twilio</h3>
+          <p className="text-slate-400 text-sm">Link your phone number to start receiving calls.</p>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Usage Stats - Takes up 1 column */}
         <div className="md:col-span-1 space-y-6">
           <UsageCard used={minutesUsed} limit={minutesLimit} />
-
-          <Card className="p-6 cursor-pointer hover:bg-slate-800/80 transition group" onClick={() => onNavigate('chat-demo')}>
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-purple-500/10 rounded-xl group-hover:bg-purple-500/20 transition">
-                <MessageSquare className="w-6 h-6 text-purple-400" />
-              </div>
-              <div>
-                <h3 className="font-bold text-white">Test Chat</h3>
-                <p className="text-sm text-slate-400">Try text messaging</p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6 cursor-pointer hover:bg-slate-800/80 transition group" onClick={() => onNavigate('phone-demo')}>
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-green-500/10 rounded-xl group-hover:bg-green-500/20 transition">
-                <Phone className="w-6 h-6 text-green-400" />
-              </div>
-              <div>
-                <h3 className="font-bold text-white">Test Voice</h3>
-                <p className="text-sm text-slate-400">Try voice calling</p>
-              </div>
-            </div>
-          </Card>
         </div>
 
         {/* Pricing Plans - Takes up 2 columns */}
@@ -992,10 +1072,11 @@ interface TwilioStatus {
 interface SettingsViewProps {
   config: BusinessConfig;
   onUpdate: () => void;
+  isDemoMode?: boolean;
 }
 
 // Settings View
-const SettingsView: React.FC<SettingsViewProps> = ({ config, onUpdate }) => {
+const SettingsView: React.FC<SettingsViewProps> = ({ config, onUpdate, isDemoMode }) => {
   const [twilioPhone, setTwilioPhone] = useState('');
   const [accountSid, setAccountSid] = useState('');
   const [authToken, setAuthToken] = useState('');
@@ -1004,8 +1085,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, onUpdate }) => {
   const [twilioStatus, setTwilioStatus] = useState<TwilioStatus | null>(null);
 
   useEffect(() => {
-    checkTwilioStatus();
-  }, []);
+    if (!isDemoMode) {
+      checkTwilioStatus();
+    }
+  }, [isDemoMode]);
 
   const checkTwilioStatus = async () => {
     try {
@@ -1047,6 +1130,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, onUpdate }) => {
       setLoading(false);
     }
   };
+
+  if (isDemoMode) {
+    return (
+      <div>
+        <h1 className="text-3xl font-bold text-white mb-6">Settings</h1>
+        <div className="bg-slate-800/50 p-8 rounded-xl border border-slate-700 text-center">
+          <Lock className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">Settings are locked in Demo Mode</h2>
+          <p className="text-slate-400 mb-6">Create an account to save your business configuration and connect a phone number.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-lg font-bold transition"
+          >
+            Create Account
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -1265,27 +1367,34 @@ export default function App() {
   const [session, setSession] = useState<any>(null);
   const [config, setConfig] = useState<BusinessConfig | null>(null);
   const [view, setView] = useState('loading'); // loading, auth, onboarding, dashboard, chat-demo, phone-demo, settings
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) checkSetup(session);
-      else setView('auth');
+      if (session) {
+        setIsDemoMode(false);
+        checkSetup(session);
+      } else if (!isDemoMode) {
+        setView('auth');
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) checkSetup(session);
-      else setView('auth');
+      if (session) {
+        setIsDemoMode(false);
+        checkSetup(session);
+      } else if (!isDemoMode) {
+        setView('auth');
+      }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [isDemoMode]);
 
   const checkSetup = async (currentSession: any) => {
     console.log("[App] Checking setup status...");
-    // Only set to loading if we aren't already there or in a potentially confusing state
-    // For smoother UX, we can just let it sit if we want, but since backend sleeps, we NEED feedback.
     if (view !== 'loading') setView('loading');
 
     try {
@@ -1293,76 +1402,75 @@ export default function App() {
         headers: { 'Authorization': `Bearer ${currentSession.access_token}` }
       });
 
-      // Handle 401 - backend doesn't recognize token, but user IS authenticated with Supabase
-      // Proceed to onboarding instead of redirecting to login (which causes an infinite loop)
       if (res.status === 401) {
-        console.log("[App] Backend returned 401 - proceeding to onboarding (user is authenticated with Supabase)");
+        console.log("[App] Backend returned 401 - proceeding to onboarding");
         setConfig({} as BusinessConfig);
         setView('onboarding');
         return;
       }
 
-      // Handle other HTTP errors
-      if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
 
       const data = await res.json();
-      console.log("[App] Setup data received:", data);
       if (data.setupCompleted) {
         setConfig(data.config);
         setView('dashboard');
       } else {
-        setConfig(data.config || {}); // Ensure we have a config object
+        setConfig(data.config || {});
         setView('onboarding');
       }
     } catch (err: any) {
       console.error("[App] checkSetup Error:", err);
-      // On error, proceed to onboarding rather than kicking back to login
-      console.log("[App] Connection error - proceeding to onboarding");
       setConfig({} as BusinessConfig);
       setView('onboarding');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setConfig(null); // Clear config on logout
-    setView('auth'); // Go to auth page
+    if (isDemoMode) {
+      setIsDemoMode(false);
+      setConfig(null);
+      setView('auth');
+    } else {
+      await supabase.auth.signOut();
+      setConfig(null); // Clear config on logout
+      setView('auth'); // Go to auth page
+    }
   };
 
-  if (view === 'loading') {
+  const handleTryDemo = () => {
+    setIsDemoMode(true);
+    setConfig({} as BusinessConfig);
+    setView('onboarding');
+  };
+
+  if (view === 'loading' && !isDemoMode) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-purple-500/20 border-t-purple-500 mb-4" />
-        <p className="text-slate-400 animate-pulse font-medium">Initializing SmartReception...</p>
-        <p className="text-slate-500 text-xs mt-4 max-w-xs text-center">
-          (This may take ~50s if the server is waking up from sleep mode)
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mb-4"></div>
+        <p className="text-slate-400 animate-pulse">Connecting to server...</p>
+        <p className="text-slate-600 text-xs mt-2 max-w-xs text-center">
+          (Cold start may take up to 50s on free hosting)
         </p>
       </div>
     );
   }
 
-  if (view === 'auth') return <Auth onAuthSuccess={() => { }} />;
-  if (view === 'onboarding') return <Onboarding onComplete={(cfg: BusinessConfig) => { setConfig(cfg); setView('dashboard'); }} />;
+  if (view === 'auth') return <Auth onAuthSuccess={() => { }} onTryDemo={handleTryDemo} />;
+  if (view === 'onboarding') return <Onboarding onComplete={(cfg: BusinessConfig) => { setConfig(cfg); setView('dashboard'); }} isDemoMode={isDemoMode} />;
 
-  if (!config) {
-    // This case should ideally not be reached if checkSetup works correctly,
-    // but as a fallback, we can show a loading or error state.
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-        <p className="text-red-400">Error: Configuration not loaded. Please try again.</p>
-        <button onClick={() => setView('auth')} className="mt-4 text-white bg-purple-600 px-4 py-2 rounded">Go to Login</button>
-      </div>
-    );
+  // Validation
+  if (!config && !isDemoMode && view !== 'loading') {
+    setView('auth');
+    return null;
   }
 
   return (
-    <AppShell onLogout={handleLogout} user={session?.user} onViewChange={setView}>
-      {view === 'dashboard' && <DashboardView config={config} onNavigate={setView} />}
-      {view === 'settings' && <SettingsView config={config} onUpdate={() => checkSetup(session)} />}
-      {view === 'chat-demo' && <ChatDemoView config={config} />}
-      {view === 'phone-demo' && <VoiceDemoView config={config} />}
+    <AppShell onLogout={handleLogout} user={isDemoMode ? { email: 'Demo User' } : session?.user} onViewChange={setView}>
+      {view === 'dashboard' && <DashboardView config={config || {} as BusinessConfig} onNavigate={setView} isDemoMode={isDemoMode} />}
+      {view === 'settings' && <SettingsView config={config || {} as BusinessConfig} onUpdate={() => session && checkSetup(session)} isDemoMode={isDemoMode} />}
+      {view === 'chat-demo' && <ChatDemoView config={config || {} as BusinessConfig} isDemoMode={isDemoMode} />}
+      {view === 'phone-demo' && <VoiceDemoView config={config || {} as BusinessConfig} isDemoMode={isDemoMode} />}
     </AppShell>
   );
 }
