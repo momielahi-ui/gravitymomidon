@@ -110,6 +110,7 @@ app.post('/api/setup', async (req, res) => {
 
 // Chat Endpoint
 app.post('/api/chat', async (req, res) => {
+    console.log('[Chat] Received request. Body config present:', !!req.body?.config);
     try {
         // Validation
         if (!req.body) {
