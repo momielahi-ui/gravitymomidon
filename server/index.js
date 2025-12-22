@@ -49,14 +49,14 @@ const getSupabaseClient = (token) => {
 
 // Gemini Setup
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'dummy-key');
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
 // Health check for deployment verification (Last updated: 2025-12-22)
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
-        model: 'gemini-2.0-flash',
-        deployment: '2025-12-22-v1'
+        model: 'gemini-flash-latest',
+        deployment: '2025-12-22-v2-quota-fix'
     });
 });
 
@@ -120,6 +120,7 @@ app.post('/api/chat', async (req, res) => {
         // Check for Demo Config first (Unauthenticated flow)
         let config = req.body.config;
         let user = null;
+        const isDemoMode = !!config;
 
         if (!config) {
             // Authenticated flow: Get user and fetch from DB
@@ -154,11 +155,11 @@ app.post('/api/chat', async (req, res) => {
 
         // Construct System Prompt
         // Use safe access or defaults to prevent undefined errors in string interpolation
-        const systemPrompt = `You are an AI receptionist for "${config.business_name || 'Business'}".
+        const systemPrompt = `You are an AI receptionist for "${config.business_name || config.name || 'Business'}".
       
       BUSINESS DETAILS:
       - Services: ${config.services || 'General Inquiry'}
-      - Working Hours: ${config.working_hours || '9 AM - 5 PM'}
+      - Working Hours: ${config.working_hours || config.workingHours || '9 AM - 5 PM'}
       - Tone: ${config.tone || 'professional'}
       
       INSTRUCTIONS:
@@ -190,7 +191,18 @@ app.post('/api/chat', async (req, res) => {
 
         const result = await chat.sendMessageStream(message);
 
-        // Set headers for streaming
+        // Demo mode: Return JSON response
+        if (isDemoMode) {
+            console.log('[Chat] Demo mode: collecting full response for JSON');
+            let fullResponse = '';
+            for await (const chunk of result.stream) {
+                fullResponse += chunk.text();
+            }
+            return res.json({ response: fullResponse });
+        }
+
+        // Authenticated mode: Stream response
+        console.log('[Chat] Authenticated mode: streaming response');
         res.setHeader('Content-Type', 'text/plain');
         res.setHeader('Transfer-Encoding', 'chunked');
 
