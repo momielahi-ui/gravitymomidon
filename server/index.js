@@ -92,52 +92,69 @@ app.post('/api/setup', async (req, res) => {
 
 // Chat Endpoint
 app.post('/api/chat', async (req, res) => {
-    // Check for Demo Config first (Unauthenticated flow)
-    let config = req.body.config;
-    let user = null;
-
-    if (!config) {
-        // Authenticated flow: Get user and fetch from DB
-        user = await getUser(req);
-        if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-        const supabase = getSupabaseClient(req.headers.authorization.split(' ')[1]);
-        const { data: dbConfig, error } = await supabase
-            .from('businesses')
-            .select('*')
-            .eq('user_id', user.id)
-            .single();
-
-        config = dbConfig;
-    }
-
-    if (!config) {
-        return res.status(400).json({ error: 'Business not configured' });
-    }
-
-    const { message, history } = req.body;
-
-    // Construct System Prompt
-    const systemPrompt = `You are an AI receptionist for "${config.business_name}".
-  
-  BUSINESS DETAILS:
-  - Services: ${config.services}
-  - Working Hours: ${config.working_hours}
-  - Tone: ${config.tone}
-  
-  INSTRUCTIONS:
-  1. You are talking to a customer.
-  2. Answer strictly based on the business details.
-  3. If asked about something not listed, say you don't know but can take a message.
-  4. Be ${config.tone}.
-  5. Keep responses concise (under 50 words) suitable for a chat interface.
-  `;
-
     try {
+        // Validation
+        if (!req.body) {
+            return res.status(400).json({ error: 'Missing request body' });
+        }
+
+        // Check for Demo Config first (Unauthenticated flow)
+        let config = req.body.config;
+        let user = null;
+
+        if (!config) {
+            // Authenticated flow: Get user and fetch from DB
+            user = await getUser(req);
+            if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+            const token = req.headers.authorization?.split(' ')[1];
+            if (!token) return res.status(401).json({ error: 'Missing token' });
+
+            const supabase = getSupabaseClient(token);
+            const { data: dbConfig, error } = await supabase
+                .from('businesses')
+                .select('*')
+                .eq('user_id', user.id)
+                .single();
+
+            if (error || !dbConfig) {
+                return res.status(400).json({ error: 'Business configuration not found' });
+            }
+            config = dbConfig;
+        }
+
+        if (!config) {
+            return res.status(400).json({ error: 'Business not configured' });
+        }
+
+        const { message, history } = req.body;
+
+        if (!message) {
+            return res.status(400).json({ error: 'Message is required' });
+        }
+
+        // Construct System Prompt
+        // Use safe access or defaults to prevent undefined errors in string interpolation
+        const systemPrompt = `You are an AI receptionist for "${config.business_name || 'Business'}".
+      
+      BUSINESS DETAILS:
+      - Services: ${config.services || 'General Inquiry'}
+      - Working Hours: ${config.working_hours || '9 AM - 5 PM'}
+      - Tone: ${config.tone || 'professional'}
+      
+      INSTRUCTIONS:
+      1. You are talking to a customer.
+      2. Answer strictly based on the business details.
+      3. If asked about something not listed, say you don't know but can take a message.
+      4. Be ${config.tone || 'professional'}.
+      5. Keep responses concise (under 50 words) suitable for a chat interface.
+      `;
+
         // Validate History for Gemini (Must start with User)
-        let formattedHistory = history.map(msg => ({
+        const safeHistory = Array.isArray(history) ? history : [];
+        let formattedHistory = safeHistory.map(msg => ({
             role: msg.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: msg.content }],
+            parts: [{ text: msg.content || '' }],
         }));
 
         if (formattedHistory.length > 0 && formattedHistory[0].role === 'model') {
@@ -166,7 +183,7 @@ app.post('/api/chat', async (req, res) => {
         res.end();
 
     } catch (error) {
-        console.error('Gemini API Error:', error);
+        console.error('Gemini/Server API Error:', error);
 
         // Ensure we don't try to send headers if already sent (streaming started)
         if (!res.headersSent) {
@@ -175,6 +192,7 @@ app.post('/api/chat', async (req, res) => {
                 details: error.toString()
             });
         } else {
+            console.error('Error occurred after headers sent, ending stream.');
             res.end();
         }
     }
