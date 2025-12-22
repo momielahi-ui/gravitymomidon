@@ -40,7 +40,14 @@ const getSupabaseClient = (token) => {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'dummy-key');
 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-// Routes
+// Health check for deployment verification
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        model: 'gemini-2.0-flash',
+        deployment: '2025-12-22-v1'
+    });
+});
 
 // Check setup status
 app.get('/api/status', async (req, res) => {
