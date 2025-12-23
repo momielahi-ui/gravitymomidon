@@ -290,7 +290,8 @@ const PricingCard: React.FC<{
   mins: number;
   current: boolean;
   features: string[];
-}> = ({ plan, price, mins, current, features }) => (
+  onClick?: () => void;
+}> = ({ plan, price, mins, current, features, onClick }) => (
   <Card className={`p-6 relative overflow-hidden ${current ? 'border-purple-500 ring-1 ring-purple-500' : 'opacity-80 hover:opacity-100 transition'}`}>
     {current && (
       <div className="absolute top-0 right-0 bg-purple-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl">
@@ -323,7 +324,7 @@ const PricingCard: React.FC<{
         ? 'bg-slate-700 text-slate-400 cursor-default'
         : 'bg-white text-slate-900 hover:bg-slate-200'
         }`}
-      onClick={() => alert("Billing integration coming soon! Contact support to upgrade.")}
+      onClick={onClick || (() => alert("Billing integration coming soon!"))}
     >
       {current ? 'Active Plan' : 'Upgrade'}
     </button>
@@ -718,10 +719,12 @@ const BillingView: React.FC<{
         }
       } catch (e) {
         console.error("Failed to fetch plans", e);
-        // Alert user if this is a network error (likely due to missing API_URL)
-        if (e instanceof Error && e.message.includes('Network')) {
-          alert("Could not connect to server. Please check your internet or try again later.");
-        }
+        // Fallback on error so user sees something
+        setPlans([
+          { id: 'free', name: 'Free Tier', price: 0, minutes: 10, features: ['Basic Voice'] },
+          { id: 'starter', name: 'Starter Plan', price: 29, minutes: 100, features: ['Standard Voice', 'Email Support'] },
+          { id: 'pro', name: 'Pro Plan', price: 99, minutes: 500, features: ['Premium Voice', 'Priority Support'] }
+        ]);
       } finally {
         setLoading(false);
       }
@@ -1287,6 +1290,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ config, onNavigate, isDem
               mins={100}
               current={currentPlan === 'starter'}
               features={['Basic AI Voice', 'Email Support']}
+              onClick={() => onNavigate('billing')}
             />
             <PricingCard
               plan="growth"
@@ -1294,6 +1298,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ config, onNavigate, isDem
               mins={500}
               current={currentPlan === 'growth'}
               features={['Advanced Voice', 'Priority Support', 'Custom Greeting']}
+              onClick={() => onNavigate('billing')}
             />
             <PricingCard
               plan="pro"
@@ -1301,7 +1306,9 @@ const DashboardView: React.FC<DashboardViewProps> = ({ config, onNavigate, isDem
               mins={2000}
               current={currentPlan === 'pro'}
               features={['24/7 Phone Support', 'API Access', 'White Labeling']}
+              onClick={() => onNavigate('billing')}
             />
+
           </div>
           <p className="text-xs text-slate-500 mt-4 text-center">
             Need more? <a href="#" className="underline hover:text-purple-400">Contact Sales</a> for Enterprise plans.
