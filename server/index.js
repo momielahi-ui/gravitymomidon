@@ -791,7 +791,8 @@ setInterval(() => { }, 10000);
 process.on('exit', (code) => {
     console.log(`Process exiting with code: ${code}`);
 });
-console.log('Unhandled Rejection at:', p, 'reason:', reason);
+process.on('unhandledRejection', (reason, p) => {
+    console.log('Unhandled Rejection at:', p, 'reason:', reason);
 });
 
 // POST /api/admin/test-email (Debug)
