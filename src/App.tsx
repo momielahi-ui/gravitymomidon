@@ -599,8 +599,11 @@ const PaymentModal: React.FC<{
     if (!reference) return alert('Please enter the transaction reference');
     setSubmitting(true);
     try {
+      console.log('Submitting payment...', { plan: plan.id, amount: plan.price, paymentMethod: method, reference });
+
       const res = await authenticatedFetch(`${API_URL}/billing/pay`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           plan: plan.id,
           amount: plan.price,
@@ -609,14 +612,25 @@ const PaymentModal: React.FC<{
         })
       });
 
-      const data = await res.json();
+      console.log('Payment response status:', res.status);
+
+      // Handle non-JSON responses (like 404 or 500 HTML pages)
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`Server returned unexpected response: ${res.status}. Please try again.`);
+      }
+
       if (res.ok) {
         alert('Payment request submitted! We will activate your plan shortly after verification.');
         onSuccess();
       } else {
-        throw new Error(data.error);
+        throw new Error(data.error || 'Submission failed');
       }
     } catch (e: any) {
+      console.error('Payment submission error:', e);
       alert(`Error: ${e.message}`);
     } finally {
       setSubmitting(false);
@@ -697,9 +711,30 @@ const PaymentModal: React.FC<{
 
 const BillingView: React.FC<{
   business: any;
-}> = ({ business }) => {
+  isDemoMode?: boolean;
+}> = ({ business, isDemoMode }) => {
   const [plans, setPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  if (isDemoMode) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-8">
+        <div className="bg-slate-800 p-8 rounded-2xl border border-slate-700 max-w-md w-full">
+          <Lock className="w-16 h-16 text-purple-500 mx-auto mb-6" />
+          <h2 className="text-2xl font-bold text-white mb-2">Billing Locked</h2>
+          <p className="text-slate-400 mb-8">
+            You are currently in Demo Mode. To upgrade your plan and start real payments, you must create an account first.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold transition"
+          >
+            Create Account
+          </button>
+        </div>
+      </div>
+    );
+  }
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
 
   useEffect(() => {
@@ -1847,7 +1882,7 @@ export default function App() {
     <AppShell onLogout={handleLogout} user={isDemoMode ? { email: 'Demo User' } : session?.user} onViewChange={setView}>
       {view === 'dashboard' && <DashboardView config={config || {} as BusinessConfig} onNavigate={setView} isDemoMode={isDemoMode} />}
       {view === 'settings' && <SettingsView config={config || {} as BusinessConfig} onUpdate={() => session && checkSetup(session)} isDemoMode={isDemoMode} onNavigate={setView} />}
-      {view === 'billing' && <BillingView business={config || {} as BusinessConfig} />}
+      {view === 'billing' && <BillingView business={config || {} as BusinessConfig} isDemoMode={isDemoMode} />}
       {view === 'admin' && <AdminView onNavigate={setView} />}
       {view === 'chat-demo' && <ChatDemoView config={config || {} as BusinessConfig} isDemoMode={isDemoMode} />}
       {view === 'phone-demo' && <VoiceDemoView config={config || {} as BusinessConfig} isDemoMode={isDemoMode} />}

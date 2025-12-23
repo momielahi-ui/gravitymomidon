@@ -45,7 +45,16 @@ const getSupabaseClient = (token) => {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'dummy-key');
 const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
-// Health check for deployment verification (Last updated: 2025-12-22)
+// Email Transporter (Use Payoneer Email or Gmail App Password)
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.PAYONEER_EMAIL, // Using this as the sender for now
+        pass: process.env.EMAIL_PASSWORD  // User needs to set this in env
+    }
+});
+
+// Health check for deployment verification (Last updated: 2025-12-23)
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
@@ -393,11 +402,12 @@ app.post('/api/billing/pay', async (req, res) => {
         // If no business found for user, we can't link payment
         if (!business) return res.status(404).json({ error: 'Business not found' });
 
-        // 2. Create Payment Request
+        // 2. Create Payment Request with Email
         const { error } = await supabase
             .from('payment_requests')
             .insert({
                 user_id: user.id,
+                email: user.email, // Save email for notification
                 business_id: business.id,
                 plan,
                 amount,
