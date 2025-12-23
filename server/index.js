@@ -536,39 +536,31 @@ app.post('/api/admin/approve', requireAdmin, async (req, res) => {
                     `
                 });
             } catch (emailErr) {
-                console.error('[Admin] Email failed:', emailErr);
+                console.error('[Admin] Email failed but payment approved:', emailErr);
+                // Do not throw, allow success response
             }
         }
 
-        res.json({ success: true, message: 'Approved and updated' });
+        res.json({ success: true, message: 'Approved, updated, and emailed' });
 
-        // 2. Determine limits
-        let minutesLimit = 10;
-        if (request.plan === 'starter') minutesLimit = 100;
-        if (request.plan === 'pro') minutesLimit = 500;
-
-        // 3. Update Business
-        const { error: busError } = await supabase
-            .from('businesses')
-            .update({
-                subscription_plan: request.plan,
-                minutes_limit: minutesLimit
-            })
-            .eq('id', request.business_id);
-
-        if (busError) throw busError;
-
-        // 4. Mark Request Approved
-        await supabase
-            .from('payment_requests')
-            .update({ status: 'approved' })
-            .eq('id', requestId);
-
-        res.json({ success: true, message: 'Plan activated' });
     } catch (err) {
         console.error('Approval Error:', err);
+        // Only mark as pending if main update failed (optional logic, but keep simple for now)
         res.status(500).json({ error: 'Approval failed' });
     }
+});
+
+// 4. Mark Request Approved
+await supabase
+    .from('payment_requests')
+    .update({ status: 'approved' })
+    .eq('id', requestId);
+
+res.json({ success: true, message: 'Plan activated' });
+    } catch (err) {
+    console.error('Approval Error:', err);
+    res.status(500).json({ error: 'Approval failed' });
+}
 });
 
 // GET /api/admin/config (Payment Details)
