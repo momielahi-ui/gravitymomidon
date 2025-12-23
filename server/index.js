@@ -2,7 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import nodemailer from 'nodemailer'; // Added email support
 
 dotenv.config();
 
@@ -49,8 +51,8 @@ const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: process.env.PAYONEER_EMAIL, // Using this as the sender for now
-        pass: process.env.EMAIL_PASSWORD  // User needs to set this in env
+        user: process.env.SENDER_EMAIL || process.env.PAYONEER_EMAIL, // Allow generic sender var
+        pass: process.env.EMAIL_PASSWORD
     }
 });
 
@@ -467,6 +469,65 @@ app.post('/api/admin/approve', requireAdmin, async (req, res) => {
 
         if (!request) return res.status(404).json({ error: 'Request not found' });
         if (request.status === 'approved') return res.status(400).json({ error: 'Already approved' });
+
+        // 1.5 Get business info for email
+        const { data: business } = await supabase
+            .from('businesses')
+            .select('business_name')
+            .eq('id', request.business_id)
+            .single();
+
+        // 2. Mark request as approved
+        const { error: updateError } = await supabase
+            .from('payment_requests')
+            .update({ status: 'approved' })
+            .eq('id', requestId);
+
+        if (updateError) throw updateError;
+
+        // 3. Update Business Limits
+        const limits = {
+            'starter': 100,
+            'growth': 500,
+            'pro': 2000
+        };
+        const newLimit = limits[request.plan] || 10;
+
+        await supabase
+            .from('businesses')
+            .update({
+                subscription_plan: request.plan,
+                minutes_limit: newLimit
+            })
+            .eq('id', request.business_id);
+
+        // 4. Send Confirmation Email
+        if (request.email && process.env.EMAIL_PASSWORD) {
+            console.log(`[Admin] Sending confirmation email to ${request.email}`);
+            try {
+                await transporter.sendMail({
+                    from: `"SmartReception Billing" <${process.env.SENDER_EMAIL || process.env.PAYONEER_EMAIL}>`,
+                    to: request.email,
+                    subject: 'Payment Approved - Your Plan is Active! 🎉',
+                    html: `
+                        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px;">
+                            <h2 style="color: #6b21a8;">Payment Received!</h2>
+                            <p>Hi there,</p>
+                            <p>Great news! We've confirmed your payment for the <strong>${request.plan.toUpperCase()} Plan</strong>.</p>
+                            <p>Your business <strong>${business?.business_name || 'Account'}</strong> has been upgraded.</p>
+                            <p><strong>Amount:</strong> $${request.amount}</p>
+                            <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+                            <p>You can now log in and configure your AI Receptionist.</p>
+                            <p><a href="https://gravitymomidon.vercel.app" style="background-color: #6b21a8; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Go to Dashboard</a></p>
+                        </div>
+                    `
+                });
+            } catch (emailErr) {
+                console.error('[Admin] Email failed:', emailErr);
+            }
+        }
+
+        res.json({ success: true, message: 'Approved and updated' });
 
         // 2. Determine limits
         let minutesLimit = 10;
