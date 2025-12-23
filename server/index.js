@@ -47,16 +47,26 @@ const getSupabaseClient = (token) => {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'dummy-key');
 const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
-// Email Transporter (Generic SMTP to support Resend/Gmail/Outlook)
+// Email Transporter (Smart Configuration)
+const emailPass = process.env.EMAIL_PASSWORD || '';
+const isResend = emailPass.startsWith('re_');
+
 const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    host: process.env.SMTP_HOST || (isResend ? 'smtp.resend.com' : 'smtp.gmail.com'),
     port: parseInt(process.env.SMTP_PORT || '465'),
-    secure: process.env.SMTP_SECURE === 'true' || true, // true for 465, false for other ports
+    secure: process.env.SMTP_SECURE === 'true' || true,
     auth: {
-        user: process.env.SMTP_USER || process.env.SENDER_EMAIL || process.env.PAYONEER_EMAIL,
-        pass: process.env.EMAIL_PASSWORD
+        user: process.env.SMTP_USER || (isResend ? 'resend' : (process.env.SENDER_EMAIL || process.env.PAYONEER_EMAIL)),
+        pass: emailPass
     }
 });
+
+// Helper to determine sender address
+const getSender = () => {
+    if (process.env.SENDER_EMAIL) return process.env.SENDER_EMAIL;
+    if (isResend) return 'onboarding@resend.dev'; // Mandatory for Resend free tier
+    return process.env.PAYONEER_EMAIL;
+};
 
 // Health check for deployment verification (Last updated: 2025-12-23)
 app.get('/api/health', (req, res) => {
@@ -508,7 +518,7 @@ app.post('/api/admin/approve', requireAdmin, async (req, res) => {
             console.log(`[Admin] Sending confirmation email to ${request.email}`);
             try {
                 await transporter.sendMail({
-                    from: `"SmartReception Billing" <${process.env.SENDER_EMAIL || process.env.PAYONEER_EMAIL}>`,
+                    from: `"SmartReception Billing" <${getSender()}>`,
                     to: request.email,
                     subject: 'Payment Approved - Your Plan is Active! 🎉',
                     html: `
@@ -798,7 +808,7 @@ process.on('unhandledRejection', (reason, p) => {
 // POST /api/admin/test-email (Debug)
 app.post('/api/admin/test-email', requireAdmin, async (req, res) => {
     console.log('[Debug] Testing SMTP Connection...');
-    const sender = process.env.SENDER_EMAIL || process.env.PAYONEER_EMAIL;
+    const sender = getSender();
     const password = process.env.EMAIL_PASSWORD;
 
     if (!sender || !password) {
