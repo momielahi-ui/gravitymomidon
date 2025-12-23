@@ -52,7 +52,8 @@ const emailPass = process.env.EMAIL_PASSWORD || '';
 const isResend = emailPass.startsWith('re_');
 
 const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || (isResend ? 'smtp.resend.com' : 'smtp.gmail.com'),
+    // If it looks like a Resend key, FORCE Resend host. Ignore Render's SMTP_HOST if set incorrectly.
+    host: isResend ? 'smtp.resend.com' : (process.env.SMTP_HOST || 'smtp.gmail.com'),
     port: parseInt(process.env.SMTP_PORT || '465'),
     secure: process.env.SMTP_SECURE === 'true' || true,
     auth: {
