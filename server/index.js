@@ -530,44 +530,9 @@ app.post('/api/admin/approve', requireAdmin, async (req, res) => {
             })
             .eq('id', request.business_id);
 
-        // 4. Send Confirmation Email
-        if (request.email && process.env.EMAIL_PASSWORD) {
-            console.log(`[Admin] Sending confirmation email to ${request.email} (Background)`);
+        // 4. Manual Email (User requested to disable auto-email)
+        console.log(`[Admin] Payment approved for ${request.email}. Email notifications are disabled.`);
 
-            const senderEmail = getSender();
-            const emailHtml = `
-                <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px;">
-                    <h2 style="color: #6b21a8;">Payment Received!</h2>
-                    <p>Hi there,</p>
-                    <p>Great news! We've confirmed your payment for the <strong>${request.plan.toUpperCase()} Plan</strong>.</p>
-                    <p>Your business <strong>${business?.business_name || 'Account'}</strong> has been upgraded.</p>
-                    <p><strong>Amount:</strong> $${request.amount}</p>
-                    <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-                    <p>You can now log in and configure your AI Receptionist.</p>
-                    <p><a href="https://gravitymomidon.vercel.app" style="background-color: #6b21a8; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Go to Dashboard</a></p>
-                </div>
-            `;
-
-            if (resendClient) {
-                // Use Resend HTTP API
-                resendClient.emails.send({
-                    from: `SmartReception <${senderEmail}>`,
-                    to: request.email,
-                    subject: 'Payment Approved - Your Plan is Active! 🎉',
-                    html: emailHtml
-                }).then(data => console.log('[Admin] Resend Success:', data))
-                    .catch(err => console.error('[Admin] Resend Failed:', err));
-            } else if (nodemailerTransport) {
-                // Use Nodemailer SMTP
-                nodemailerTransport.sendMail({
-                    from: `"SmartReception Billing" <${senderEmail}>`,
-                    to: request.email,
-                    subject: 'Payment Approved - Your Plan is Active! 🎉',
-                    html: emailHtml
-                }).then(() => console.log('[Admin] SMTP Success'))
-                    .catch(err => console.error('[Admin] SMTP Failed:', err));
-            }
-        }
 
         res.json({ success: true, message: 'Approved, updated, and emailed' });
 
