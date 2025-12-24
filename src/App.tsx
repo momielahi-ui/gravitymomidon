@@ -1264,7 +1264,15 @@ const DashboardView: React.FC<DashboardViewProps> = ({ config, onNavigate, isDem
           <h1 className="text-3xl font-bold text-white">Welcome, {config.business_name}</h1>
           <p className="text-slate-400 mt-1">Manage your AI Receptionist</p>
         </div>
-        <Badge color="purple">{currentPlan.toUpperCase()} PLAN</Badge>
+        <div className="flex items-center gap-3">
+          {currentPlan !== 'free' && (
+            <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-lg text-green-400 text-xs font-bold animate-pulse">
+              <CheckCircle2 className="w-3 h-3" />
+              PLAN ACTIVATED
+            </div>
+          )}
+          <Badge color={currentPlan === 'free' ? 'blue' : 'purple'}>{currentPlan.toUpperCase()} PLAN</Badge>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1625,10 +1633,11 @@ const AdminView = ({ onNavigate }: { onNavigate: (view: string) => void }) => {
         body: JSON.stringify({ requestId: id })
       });
       if (res.ok) {
-        alert('Approved!');
+        alert('✅ Success! Plan activated for this user. \n\nRemember to send the manual confirmation email.');
         fetchPayments();
       } else {
-        alert('Error approval');
+        const errorData = await res.json().catch(() => ({}));
+        alert(`❌ Error: ${errorData.error || 'Activation failed'}`);
       }
     } catch (e) {
       console.error(e);
@@ -1678,8 +1687,8 @@ const AdminView = ({ onNavigate }: { onNavigate: (view: string) => void }) => {
                   Approve
                 </button>
               ) : (
-                <span className={`text-sm px-3 py-1 rounded capitalize ${p.status === 'approved' ? 'bg-green-900/50 text-green-300 border border-green-800' : 'bg-red-900/50 text-red-300 border border-red-800'}`}>
-                  {p.status}
+                <span className={`text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider ${p.status === 'approved' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                  {p.status === 'approved' ? 'Activated' : p.status}
                 </span>
               )}
             </div>
