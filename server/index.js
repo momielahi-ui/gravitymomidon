@@ -550,18 +550,7 @@ app.post('/api/admin/approve', requireAdmin, async (req, res) => {
     }
 });
 
-// 4. Mark Request Approved
-await supabase
-    .from('payment_requests')
-    .update({ status: 'approved' })
-    .eq('id', requestId);
 
-res.json({ success: true, message: 'Plan activated' });
-    } catch (err) {
-    console.error('Approval Error:', err);
-    res.status(500).json({ error: 'Approval failed' });
-}
-});
 
 // GET /api/admin/config (Payment Details)
 app.get('/api/admin/config', (req, res) => {
